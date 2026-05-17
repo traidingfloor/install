@@ -24,7 +24,13 @@ services:
     image: traidingfloor/traiding-floor:latest
     container_name: traiding-floor
     ports:
-      - "8080:8080"
+      # Bind to LOCALHOST ONLY by default — the API has no auth, so we don't
+      # want it reachable from your LAN (coffee shop WiFi, etc.). To expose
+      # it on your LAN (e.g., access from your phone on the same network),
+      # change the line to "8080:8080" (no 127.0.0.1 prefix). Only do that
+      # if you trust your network and accept that anyone on it can read +
+      # mutate your trading state.
+      - "127.0.0.1:8080:8080"
     volumes:
       # All operator state (API keys, trade SQLite, beliefs, knowledge base)
       # lives here on the HOST. Container is stateless — image upgrades never
@@ -53,8 +59,10 @@ services:
       traiding-floor:
         condition: service_healthy
     ports:
-      # If port 80 is taken on your host, change the LEFT side: "3000:3000"
-      - "80:3000"
+      # Bind to LOCALHOST ONLY by default (same auth reasoning as above).
+      # To expose on LAN, change to "80:3000". If port 80 is taken on your
+      # host, use any other free port like "127.0.0.1:3000:3000".
+      - "127.0.0.1:80:3000"
     environment:
       - PYTHON_BASE_URL=http://traiding-floor:8080
       - NODE_ENV=production
