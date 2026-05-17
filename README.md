@@ -8,15 +8,32 @@ intel, and Telegram alerts.
 
 Requires [Docker](https://www.docker.com/products/docker-desktop) (Desktop on Mac/Windows, daemon on Linux).
 
+**Mac / Linux / Windows (Git Bash or WSL)** — one command:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/traidingfloor/install/main/install.sh | sh
+```
+
+That's it. The script checks Docker is running, creates `./traidingfloor/`,
+downloads the compose file, pulls images (~1.1 GB), starts everything, and
+waits for the dashboard. Takes 2-5 minutes on first install.
+
+**Audit before running** (recommended — never pipe random scripts to sh blindly):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/traidingfloor/install/main/install.sh
+```
+
+### Manual install (Windows PowerShell, or if you prefer to read every step)
+
 ```bash
 mkdir traidingfloor && cd traidingfloor
 curl -fsSL https://raw.githubusercontent.com/traidingfloor/install/main/docker-compose.yml -o docker-compose.yml
 docker compose up -d
 ```
 
-Dashboard opens at <http://localhost>. First run downloads ~3 images
-(~30 seconds on a fast connection). The onboarding wizard takes you the rest
-of the way.
+Dashboard opens at <http://localhost>. The onboarding wizard takes you the
+rest of the way.
 
 ## Optional integrations
 
