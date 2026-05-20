@@ -1,0 +1,15 @@
+# Operator-local state — never commit any of this.
+user-data/
+logs/
+.env
+.env.local
+*.log
+
+# Docker artifacts on the host
+.docker/
+
+# IDE noise
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
