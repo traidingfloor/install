@@ -1,67 +1,80 @@
 # =============================================================================
-# TrAIding Floor — one-file install
+# TrAIding Floor — public install compose
 # =============================================================================
-# Install (Docker required, ~30s on first run):
+# This file lives at github.com/traidingfloor/install. It pulls pre-built
+# images from Docker Hub — no source code, no compilers, no Node/Python
+# installs on your host. Just Docker.
 #
-#   mkdir traidingfloor && cd traidingfloor
-#   curl -fsSL https://raw.githubusercontent.com/traidingfloor/install/main/docker-compose.yml -o docker-compose.yml
+# Quick start:
 #   docker compose up -d
 #
-# Dashboard:  http://localhost
-# Direct API: http://localhost:8080
+# First time? Open http://localhost in your browser. The onboarding wizard
+# fires automatically and walks you through 11 steps (exchange keys, LLM
+# brain, strategy roster, etc.). Takes about 5 minutes.
 #
-# Update:    docker compose pull && docker compose up -d
-# Stop:      docker compose down       (containers down, data preserved)
-# Wipe:      docker compose down -v    (data still on host in ./user-data/)
+# To update:
+#   docker compose pull && docker compose up -d
 #
-# Optional integrations (LLM reviewer, Dune intel, Telegram alerts) — see
-# https://github.com/traidingfloor/install/blob/main/.env.example
+# To stop:
+#   docker compose down
+#
+# Want to switch image channels (stable vs beta)?
+#   Set IMAGE_TAG in your shell or .env, e.g.: IMAGE_TAG=beta docker compose up -d
+#
+# Want to LAN-share the dashboard (e.g. view from your phone)?
+#   Change the port mappings below from 127.0.0.1:80 to 0.0.0.0:80.
+#   WARNING: the API has no auth — only do this on a trusted network.
 # =============================================================================
 
 services:
-  # ─── Backend: FastAPI + agent loop (Hyperliquid, Head Trader, strategies) ──
+
+  # ────────────────────────────────────────────────────────────────────────
+  # FastAPI backend + agent loop. The heart of the system. Everything
+  # else is optional polish around this service.
+  # ──────────────────────────────────────────────────────────────────────
   traiding-floor:
-    image: traidingfloor/traiding-floor:latest
+    image: ${IMAGE_NAMESPACE:-traidingfloor}/traiding-floor:${IMAGE_TAG:-latest}
     container_name: traiding-floor
+    restart: unless-stopped
     ports:
-      # Bind to LOCALHOST ONLY by default — the API has no auth, so we don't
-      # want it reachable from your LAN (coffee shop WiFi, etc.). To expose
-      # it on your LAN (e.g., access from your phone on the same network),
-      # change the line to "8080:8080" (no 127.0.0.1 prefix). Only do that
-      # if you trust your network and accept that anyone on it can read +
-      # mutate your trading state.
+      # Localhost only by default — the API has no auth. Change to
+      # "0.0.0.0:8080:8080" if you want it on your LAN.
       - "127.0.0.1:8080:8080"
     volumes:
-      # All operator state (API keys, trade SQLite, beliefs, knowledge base)
-      # lives here on the HOST. Container is stateless — image upgrades never
-      # touch your data.
+      # user-data/ on your HOST is the single source of truth: keys,
+      # trade history, beliefs, settings. Containers are stateless;
+      # you can wipe + re-pull at any time without losing data.
       - ./user-data:/app/user-data
       - ./logs:/app/logs
     env_file:
+      # The onboarding wizard writes this on first run; if it does
+      # not exist yet, compose just skips it and the wizard creates it.
       - path: ./user-data/.env
         required: false
     environment:
       - TF_DOCKER=1
       - TF_USER_DATA=/app/user-data
     healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request,sys; urllib.request.urlopen('http://127.0.0.1:8080/api/hyper_floor/status', timeout=3); sys.exit(0)"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
+      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://127.0.0.1:8080/health\").read()' || exit 1"]
+      interval: 30s
+      timeout: 6s
+      retries: 4
       start_period: 30s
-    restart: unless-stopped
 
-  # ─── Next.js operator dashboard (the page humans look at) ─────────────────
+  # ──────────────────────────────────────────────────────────────────
+  # Next.js operator dashboard. The page humans look at. Proxies all
+  # /api/* and /head_trader/* to the backend over the compose network.
+  # ───────────────────────────────────────────────────────────────────
   traiding-floor-web:
-    image: traidingfloor/traiding-floor-web:latest
+    image: ${IMAGE_NAMESPACE:-traidingfloor}/traiding-floor-web:${IMAGE_TAG:-latest}
     container_name: traiding-floor-web
+    restart: unless-stopped
     depends_on:
       traiding-floor:
         condition: service_healthy
     ports:
-      # Bind to LOCALHOST ONLY by default (same auth reasoning as above).
-      # To expose on LAN, change to "80:3000". If port 80 is taken on your
-      # host, use any other free port like "127.0.0.1:3000:3000".
+      # Localhost only by default. Open http://localhost in your browser.
+      # Change to "0.0.0.0:80:3000" for LAN access.
       - "127.0.0.1:80:3000"
     environment:
       - PYTHON_BASE_URL=http://traiding-floor:8080
@@ -73,56 +86,29 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
-    restart: unless-stopped
 
-  # ─── 24/7 Telegram watcher (alerts on drawdown / fill rate / agent dead) ──
-  # Needs TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID in user-data/.env, otherwise
-  # crashloops harmlessly without affecting trading.
-  traiding-watcher:
-    image: traidingfloor/traiding-watcher:latest
-    container_name: traiding-watcher
-    depends_on:
-      - traiding-floor
-    env_file:
-      - path: ./user-data/.env
-        required: false
-    environment:
-      - MONITOR_TARGET_URL=http://traiding-floor:8080
-      - WATCHER_POLL_SEC=60
-      - HEARTBEAT_INTERVAL_H=4
-      - DRAWDOWN_PCT_TRIP=10.0
-      - FILL_RATE_TRIP=0.30
-      - ALERT_COOLDOWN_SEC=900
-    healthcheck:
-      test: ["CMD", "python3", "-c", "import sys; sys.exit(0)"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 15s
-    restart: unless-stopped
-
-  # ─── Dune Analytics intel sidecar (cross-venue arb, alts, whales) ─────────
-  # Reuses the backend image; just runs a different module. Needs DUNE_API_KEY
-  # in user-data/.env — exits cleanly if missing.
-  traiding-dune-intel:
-    image: traidingfloor/traiding-floor:latest
-    container_name: traiding-dune-intel
-    depends_on:
-      - traiding-floor
-    entrypoint: ["python", "-m", "dune_intel"]
-    env_file:
-      - path: ./user-data/.env
-        required: false
-    environment:
-      - HEAD_TRADER_INTEL_URL=http://traiding-floor:8080/api/head_trader/intel
-      - DUNE_POLL_INTERVAL_SEC=600
-      - DUNE_ARB_QUERY_ID=7513958
-      - DUNE_ALT_QUERY_ID=7513863
-      - DUNE_WHALE_QUERY_ID=7513864
-    healthcheck:
-      test: ["CMD", "python3", "-c", "import dune_intel"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 15s
-    restart: unless-stopped
+  # ─────────────────────────────────────────────────────────────────
+  # OPTIONAL — Telegram alert watcher.
+  # Polls the dashboard's /api/hyper_floor/status every minute and posts
+  # alerts when key conditions trigger (drawdown, agent dead, circuit
+  # broken). Needs TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID in your
+  # user-data/.env — without those the container crashloops harmlessly.
+  #
+  # To enable: uncomment this block AND add the two env vars.
+  # ───────────────────────────────────────────────────────────────────
+  # traiding-watcher:
+  #   image: ${IMAGE_NAMESPACE:-traidingfloor}/traiding-watcher:${IMAGE_TAG:-latest}
+  #   container_name: traiding-watcher
+  #   restart: unless-stopped
+  #   depends_on:
+  #     - traiding-floor
+  #   env_file:
+  #     - path: ./user-data/.env
+  #       required: false
+  #   environment:
+  #     - MONITOR_TARGET_URL=http://traiding-floor:8080
+  #     - WATCHER_POLL_SEC=60
+  #     - HEARTBEAT_INTERVAL_H=4
+  #     - DRAWDOWN_PCT_TRIP=10.0
+  #     - FILL_RATE_TRIP=0.30
+  #     - ALERT_COOLDOWN_SEC=900
